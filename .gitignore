@@ -1,0 +1,12 @@
+health.db
+health.db-journal
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+*.log
+
+.env
