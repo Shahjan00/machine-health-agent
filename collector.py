@@ -5,6 +5,8 @@ import probes
 import db
 import alerts
 
+import threading
+import api
 
 
 WATCHED = []  # add process names to watch here
@@ -17,6 +19,8 @@ for p in psutil.process_iter():
         p.cpu_percent()
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         pass
+
+threading.Thread(target=api.run, daemon=True).start()
 
 loop = 0
 while True:
