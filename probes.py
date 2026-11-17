@@ -2,6 +2,7 @@ import re
 import socket
 import subprocess
 import time
+import urllib.error
 import urllib.request
 
 INTERNET_HOST = "8.8.8.8"
@@ -11,8 +12,11 @@ TCP_PORT = 443
 API_URL = "https://www.google.com"
 
 def get_gateway():
-    out = subprocess.run(["ip", "route", "show", "default"],
-                         capture_output=True, text=True, timeout=5).stdout
+    try:
+        out = subprocess.run(["ip", "route", "show", "default"],
+                             capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
     parts = out.split()
     return parts[2] if "via" in parts else None
 
@@ -25,9 +29,13 @@ def check_dns(host=DNS_HOST):
         return None
 
 def check_tcp(host=TCP_HOST, port=TCP_PORT):
+    try:
+        addr = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)[0][4]
+    except OSError:
+        return None
     start = time.time()
     try:
-        socket.create_connection((host, port), timeout=5).close()
+        socket.create_connection(addr, timeout=5).close()
         return (time.time() - start) * 1000
     except OSError:
         return None
@@ -46,6 +54,8 @@ def check_api(url=API_URL):
     try:
         with urllib.request.urlopen(url, timeout=5) as resp:
             return resp.status, (time.time() - start) * 1000
+    except urllib.error.HTTPError as err:
+        return err.code, (time.time() - start) * 1000
     except Exception:
         return 0, None
 

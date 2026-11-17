@@ -69,7 +69,7 @@ class Handler(BaseHTTPRequestHandler):
         names = [r["name"] for r in rows]
         if not names:
             status = "ok"
-        elif any(n in CRITICAL_ALERTS for n in names):
+        elif any(n == c or n.startswith(c + ":") for n in names for c in CRITICAL_ALERTS):
             status = "critical"
         else:
             status = "warn"
@@ -94,7 +94,8 @@ class Handler(BaseHTTPRequestHandler):
             read_json(self, data)
             return
         allowed = {"cpu_total", "ram_percent", "disk_percent", "net_sent", "net_recv", "uptime", "load1", "load5", "load15"}
-        if name is not None and name not in allowed:
+        probe_cols = {"dns_ms", "tcp_ms", "ping_gateway_loss", "ping_internet_loss", "gateway_ok", "api_status", "api_ms"}
+        if name is not None and name not in allowed and name not in probe_cols:
             conn.close()
             read_json(self, {"error": "unknown metric"}, 400)
             return
@@ -104,8 +105,11 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
             read_json(self, {"error": "bad since"}, 400)
             return
-        cols = "ts, " + name if name is not None else "*"
-        rows = conn.execute(f"SELECT {cols} FROM system_samples WHERE ts >= ? ORDER BY ts", (since_ts,)).fetchall()
+        if name in probe_cols:
+            rows = conn.execute(f"SELECT ts, {name} FROM probes WHERE ts >= ? ORDER BY ts", (since_ts,)).fetchall()
+        else:
+            cols = "ts, " + name if name is not None else "*"
+            rows = conn.execute(f"SELECT {cols} FROM system_samples WHERE ts >= ? ORDER BY ts", (since_ts,)).fetchall()
         conn.close()
         read_json(self, [dict(r) for r in rows])
 

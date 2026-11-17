@@ -1,5 +1,7 @@
 health.db
 health.db-journal
+health.db-wal
+health.db-shm
 
 # Python
 __pycache__/
