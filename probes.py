@@ -1,4 +1,3 @@
-"""Network probes for the ZeroForg health agent. Runs every 15 seconds."""
 import re
 import socket
 import subprocess

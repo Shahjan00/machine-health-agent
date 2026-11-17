@@ -1,15 +1,17 @@
-"""Step 2: read the machine every 5 seconds, print the numbers, save them to SQLite."""
 import os
 import time
 import psutil
 import probes
 import db
+import alerts
 
-WATCHED = []  # add process names to watch here, e.g. "nginx"
+
+
+WATCHED = []  # add process names to watch here
 
 conn = db.connect()
+state = alerts.new_state()
 
-# Prime CPU readings: the first call only sets a baseline, it returns 0.
 for p in psutil.process_iter():
     try:
         p.cpu_percent()
@@ -27,7 +29,7 @@ while True:
     cpu_total = sum(cpu) / len(cpu)
 
     procs = []
-    for p in psutil.process_iter(["pid", "name"]):
+    for p in psutil.process_iter(["pid", "name", "status"]):
         try:
             procs.append((p.cpu_percent(), p.memory_info().rss, p.info))
         except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -46,9 +48,12 @@ while True:
     db.prune(conn, ts)
     conn.commit()
 
+    probe_result = None
+
     loop += 1
     if loop % 3 == 0:
         result = probes.run_all()
+        probe_result = result
         db.save_probe(conn, ts, result["dns_ms"], result["tcp_ms"],
                     result["ping_gateway_loss"], result["ping_internet_loss"],
                     result["gateway_ok"], result["api_status"], result["api_ms"])
@@ -56,8 +61,13 @@ while True:
         print(f"Probe: dns={result['dns_ms']}ms tcp={result['tcp_ms']}ms "
             f"gw_loss={result['ping_gateway_loss']}% net_loss={result['ping_internet_loss']}%")
 
+    alerts.check_all(conn, ts, cpu_total, mem, disk, probe_result, procs, WATCHED, state)
+    conn.commit()
+    open_now = conn.execute("SELECT name, peak FROM alerts WHERE status = 'open'").fetchall()
+    if open_now:
+        print("Open alerts:", open_now)
 
-    print(f"CPU total: {cpu_total:.1f}%")
+    print(f"CPU total: {cpu_total:.2f}%")
     print(f"CPU per core: {[round(c, 1) for c in cpu]}")
     print(f"RAM: {mem.percent}% used, {mem.used//1024//1024} MB")
     print(f"Disk /: {disk.percent}% used")

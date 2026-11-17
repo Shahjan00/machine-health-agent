@@ -1,4 +1,3 @@
-"""Database layer for the ZeroForg health agent. Raw sqlite3, no ORM."""
 import sqlite3
 
 DB_PATH = "health.db"
@@ -33,6 +32,14 @@ CREATE TABLE IF NOT EXISTS probes (
     gateway_ok INTEGER,
     api_status INTEGER,
     api_ms REAL
+);
+CREATE TABLE IF NOT EXISTS alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    opened_ts INTEGER,
+    closed_ts INTEGER,
+    peak REAL,
+    status TEXT
 );
 
 """
