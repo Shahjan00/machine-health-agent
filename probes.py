@@ -63,14 +63,22 @@ def check_ping(host):
         return 100.0
 
 def check_api(url=API_URL):
-    start = time.time()
-    try:
-        with urllib.request.urlopen(url, timeout=5) as resp:
-            return resp.status, (time.time() - start) * 1000
-    except urllib.error.HTTPError as err:
-        return err.code, (time.time() - start) * 1000
-    except Exception:
+    result = {}
+    def fetch():
+        start = time.time()
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                result["out"] = (resp.status, (time.time() - start) * 1000)
+        except urllib.error.HTTPError as err:
+            result["out"] = (err.code, (time.time() - start) * 1000)
+        except Exception:
+            result["out"] = (0, None)
+    t = threading.Thread(target=fetch, daemon=True)
+    t.start()
+    t.join(timeout=10)
+    if t.is_alive():
         return 0, None
+    return result.get("out", (0, None))
 
 def run_all():
     gateway = get_gateway()
