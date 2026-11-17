@@ -8,6 +8,7 @@ def new_state():
         "mem_counter": 0,
         "mem_proc_history": {},
         "seen_watched": {},
+        "first_seen": {},
         "zombie_since": {},
         "proc_cpu_streak": {},
     }
@@ -120,13 +121,20 @@ def check_all(conn, ts, cpu_total, mem, mounts, probe, procs, watched, state):
     for name in watched:
         current = {info["pid"] for _, _, info in procs if info["name"] == name}
         seen = state["seen_watched"].setdefault(name, set())
+        first_seen = state["first_seen"].setdefault(name, {})
         for pid in list(seen - current):
             alert_name = f"process_died:{name}:{pid}"
             if not is_open(conn, alert_name):
                 open_alert(conn, alert_name, ts, 1.0)
             seen.discard(pid)
         for pid in current:
-            seen.add(pid)
+            if pid not in first_seen:
+                first_seen[pid] = ts
+            elif ts - first_seen[pid] >= 5 and pid not in seen:
+                seen.add(pid)
+        for pid in list(first_seen):
+            if pid not in current:
+                del first_seen[pid]
 
     now_zombies = {}
     for _, _, info in procs:
