@@ -120,6 +120,10 @@ def check_all(conn, ts, cpu_total, mem, mounts, probe, procs, watched, state):
 
     for name in watched:
         current = {info["pid"] for _, _, info in procs if info["name"] == name}
+        if current:
+            rows = conn.execute("SELECT name FROM alerts WHERE status = 'open' AND name LIKE ?", (f"process_died:{name}:%",)).fetchall()
+            for row in rows:
+                close_alert(conn, row[0], ts)
         seen = state["seen_watched"].setdefault(name, set())
         first_seen = state["first_seen"].setdefault(name, {})
         for pid in list(seen - current):

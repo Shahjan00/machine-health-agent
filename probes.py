@@ -1,6 +1,7 @@
 import re
 import socket
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -20,19 +21,31 @@ def get_gateway():
     parts = out.split()
     return parts[2] if "via" in parts else None
 
+def resolve(host, port):
+    result = {}
+    def lookup():
+        try:
+            result["addr"] = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        except OSError:
+            result["addr"] = None
+    t = threading.Thread(target=lookup, daemon=True)
+    t.start()
+    t.join(timeout=5)
+    if t.is_alive():
+        return None
+    return result.get("addr")
+
 def check_dns(host=DNS_HOST):
     start = time.time()
-    try:
-        socket.getaddrinfo(host, 443)
-        return (time.time() - start) * 1000
-    except OSError:
+    if resolve(host, 443) is None:
         return None
+    return (time.time() - start) * 1000
 
 def check_tcp(host=TCP_HOST, port=TCP_PORT):
-    try:
-        addr = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)[0][4]
-    except OSError:
+    addrs = resolve(host, port)
+    if not addrs:
         return None
+    addr = addrs[0][4]
     start = time.time()
     try:
         socket.create_connection(addr, timeout=5).close()
