@@ -4,12 +4,13 @@ import psutil
 import probes
 import db
 import alerts
+from config import WATCHED
 
 import threading
 import api
 
 
-WATCHED = []  # add process names to watch here
+# WATCHED = ["sleep"]  # add process names to watch here
 
 conn = db.connect()
 state = alerts.new_state()

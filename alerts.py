@@ -56,7 +56,6 @@ def check_all(conn, ts, cpu_total, mem, disk, probe, procs, watched, state):
     elif is_open(conn, "cpu_high"):
         close_alert(conn, "cpu_high", ts)
 
-    # ram_high: above 90%.
     if mem.percent > RAM_HIGH_THRESHOLD:
         if not is_open(conn, "ram_high"):
             open_alert(conn, "ram_high", ts, mem.percent)
@@ -132,3 +131,29 @@ def check_all(conn, ts, cpu_total, mem, disk, probe, procs, watched, state):
             if is_open(conn, alert_name):
                 close_alert(conn, alert_name, ts)
             del state["zombie_since"][pid]
+
+    live_pids = {info["pid"] for _, _, info in procs}
+    for cpu_pct, rss, info in procs:
+        pid = info["pid"]
+        rss_mb = rss // 1024 // 1024
+        if cpu_pct > PROC_CPU_THRESHOLD:
+            name = f"proc_cpu_high:{pid}"
+            if not is_open(conn, name):
+                open_alert(conn, name, ts, cpu_pct)
+            else:
+                update_peak(conn, name, cpu_pct)
+        elif is_open(conn, f"proc_cpu_high:{pid}"):
+            close_alert(conn, f"proc_cpu_high:{pid}", ts)
+        if rss_mb > PROC_RAM_MB:
+            name = f"proc_ram_high:{pid}"
+            if not is_open(conn, name):
+                open_alert(conn, name, ts, rss_mb)
+            else:
+                update_peak(conn, name, rss_mb)
+        elif is_open(conn, f"proc_ram_high:{pid}"):
+            close_alert(conn, f"proc_ram_high:{pid}", ts)
+    rows = conn.execute("SELECT name FROM alerts WHERE status = 'open' AND (name LIKE 'proc_cpu_high:%' OR name LIKE 'proc_ram_high:%')").fetchall()
+    for row in rows:
+        pid = int(row[0].split(":")[1])
+        if pid not in live_pids:
+            close_alert(conn, row[0], ts)
