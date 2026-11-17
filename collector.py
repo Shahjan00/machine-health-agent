@@ -9,9 +9,6 @@ from config import WATCHED
 import threading
 import api
 
-
-# WATCHED = ["sleep"]  # add process names to watch here
-
 conn = db.connect()
 state = alerts.new_state()
 

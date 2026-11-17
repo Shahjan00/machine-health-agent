@@ -38,14 +38,14 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/health":
             self.health()
         elif path == "/metrics":
-            self.metrics()
+            self.metrics(query)
         elif path == "/history":
             hours = int(query.get("hours", ["1"])[0])
             self.history(hours)
         elif path == "/alerts":
-            self.alerts()
+            self.alerts(query)
         elif path == "/processes":
-            self.processes()
+            self.processes(query)
         else:
             read_json(self, {"error": "not found"}, 404)
 
@@ -75,21 +75,39 @@ class Handler(BaseHTTPRequestHandler):
             status = "warn"
         read_json(self, {"status": status, "open_alerts": names})
 
-    def metrics(self):
+    def metrics(self, query):
+        name = query.get("name", [None])[0]
+        since = query.get("since", [None])[0]
         conn = get_db()
-        rows = conn.execute("SELECT * FROM system_samples ORDER BY ts DESC LIMIT 2").fetchall()
-        probe = conn.execute("SELECT * FROM probes ORDER BY ts DESC LIMIT 1").fetchone()
+        if name is None and since is None:
+            rows = conn.execute("SELECT * FROM system_samples ORDER BY ts DESC LIMIT 2").fetchall()
+            probe = conn.execute("SELECT * FROM probes ORDER BY ts DESC LIMIT 1").fetchone()
+            conn.close()
+            data = dict(rows[0]) if rows else {}
+            if len(rows) == 2:
+                dt = rows[0]["ts"] - rows[1]["ts"]
+                if dt > 0:
+                    data["net_sent_rate"] = (rows[0]["net_sent"] - rows[1]["net_sent"]) / dt
+                    data["net_recv_rate"] = (rows[0]["net_recv"] - rows[1]["net_recv"]) / dt
+            if probe:
+                data["probe"] = dict(probe)
+            read_json(self, data)
+            return
+        allowed = {"cpu_total", "ram_percent", "disk_percent", "net_sent", "net_recv", "uptime", "load1", "load5", "load15"}
+        if name is not None and name not in allowed:
+            conn.close()
+            read_json(self, {"error": "unknown metric"}, 400)
+            return
+        try:
+            since_ts = int(since) if since is not None else 0
+        except ValueError:
+            conn.close()
+            read_json(self, {"error": "bad since"}, 400)
+            return
+        cols = "ts, " + name if name is not None else "*"
+        rows = conn.execute(f"SELECT {cols} FROM system_samples WHERE ts >= ? ORDER BY ts", (since_ts,)).fetchall()
         conn.close()
-        data = dict(rows[0]) if rows else {}
-        if len(rows) == 2:
-            dt = rows[0]["ts"] - rows[1]["ts"]
-            if dt > 0:
-                data["net_sent_rate"] = (rows[0]["net_sent"] - rows[1]["net_sent"]) / dt
-                data["net_recv_rate"] = (rows[0]["net_recv"] - rows[1]["net_recv"]) / dt
-        if probe:
-            data["probe"] = dict(probe)
-        read_json(self, data)
-
+        read_json(self, [dict(r) for r in rows])
 
     def history(self, hours):
         conn = get_db()
@@ -101,14 +119,22 @@ class Handler(BaseHTTPRequestHandler):
         conn.close()
         read_json(self, [dict(r) for r in rows])
 
-    def alerts(self):
+    def alerts(self, query):
+        open_only = query.get("open", [None])[0]
         conn = get_db()
         open_rows = conn.execute("SELECT * FROM alerts WHERE status = 'open' ORDER BY opened_ts").fetchall()
         closed_rows = conn.execute("SELECT * FROM alerts WHERE status = 'closed' ORDER BY closed_ts DESC LIMIT 20").fetchall()
         conn.close()
-        read_json(self, {"open": [dict(r) for r in open_rows], "closed": [dict(r) for r in closed_rows]})
+        if open_only == "true":
+            read_json(self, {"open": [dict(r) for r in open_rows]})
+        elif open_only == "false":
+            read_json(self, {"closed": [dict(r) for r in closed_rows]})
+        else:
+            read_json(self, {"open": [dict(r) for r in open_rows], "closed": [dict(r) for r in closed_rows]})
 
-    def processes(self):
+    def processes(self, query):
+        sort = query.get("sort", ["cpu"])[0]
+        order = "rss" if sort == "rss" else "cpu"
         conn = get_db()
         row = conn.execute("SELECT MAX(ts) AS ts FROM process_samples").fetchone()
         if row is None or row["ts"] is None:
@@ -116,7 +142,7 @@ class Handler(BaseHTTPRequestHandler):
             read_json(self, [])
             return
         rows = conn.execute(
-            "SELECT pid, name, cpu, rss FROM process_samples WHERE ts = ? ORDER BY cpu DESC LIMIT 10",
+            f"SELECT pid, name, cpu, rss FROM process_samples WHERE ts = ? ORDER BY {order} DESC LIMIT 10",
             (row["ts"],),
         ).fetchall()
         conn.close()
